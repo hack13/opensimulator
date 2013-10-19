@@ -151,62 +151,89 @@ namespace OpenSim.Data.PGSQL
         /// <param name="asset">the asset</param>
         override public void StoreAsset(AssetBase asset)
         {
-           
-            string sql =
-                @"UPDATE assets set name = :name, description = :description, " + "\"assetType\" " + @" = :assetType,
-                         local = :local, temporary = :temporary, creatorid = :creatorid, data = :data
-                    WHERE id=:id;
-
-                  INSERT INTO assets
-                    (id, name, description, " + "\"assetType\" " + @", local, 
-                     temporary, create_time, access_time, creatorid, asset_flags, data)
-                  Select :id, :name, :description, :assetType, :local, 
-                         :temporary, :create_time, :access_time, :creatorid, :asset_flags, :data
-                   Where not EXISTS(SELECT * FROM assets WHERE id=:id) 
-                ";
-            
-            string assetName = asset.Name;
-            if (asset.Name.Length > 64)
-            {
-                assetName = asset.Name.Substring(0, 64);
-                m_log.WarnFormat(
-                    "[ASSET DB]: Name '{0}' for asset {1} truncated from {2} to {3} characters on add", 
-                    asset.Name, asset.ID, asset.Name.Length, assetName.Length);
-            }
-            
-            string assetDescription = asset.Description;
-            if (asset.Description.Length > 64)
-            {
-                assetDescription = asset.Description.Substring(0, 64);
-                m_log.WarnFormat(
-                    "[ASSET DB]: Description '{0}' for asset {1} truncated from {2} to {3} characters on add", 
-                    asset.Description, asset.ID, asset.Description.Length, assetDescription.Length);
-            }
-
             using (NpgsqlConnection conn = new NpgsqlConnection(m_connectionString))
-            using (NpgsqlCommand command = new NpgsqlCommand(sql, conn))
             {
-                int now = (int)((System.DateTime.Now.Ticks - m_ticksToEpoch) / 10000000);
-                command.Parameters.Add(m_database.CreateParameter("id", asset.FullID));
-                command.Parameters.Add(m_database.CreateParameter("name", assetName));
-                command.Parameters.Add(m_database.CreateParameter("description", assetDescription));
-                command.Parameters.Add(m_database.CreateParameter("assetType", asset.Type));
-                command.Parameters.Add(m_database.CreateParameter("local", asset.Local));
-                command.Parameters.Add(m_database.CreateParameter("temporary", asset.Temporary));
+                string assetName = asset.Name;
+
+                if (asset.Name.Length > 64)
+                {
+                    assetName = asset.Name.Substring(0, 64);
+                    m_log.WarnFormat(
+                        "[ASSET DB]: Name '{0}' for asset {1} truncated from {2} to {3} characters on add",
+                        asset.Name, asset.ID, asset.Name.Length, assetName.Length);
+                }
+
+                string assetDescription = asset.Description;
+                if (asset.Description.Length > 64)
+                {
+                    assetDescription = asset.Description.Substring(0, 64);
+                    m_log.WarnFormat(
+                        "[ASSET DB]: Description '{0}' for asset {1} truncated from {2} to {3} characters on add",
+                        asset.Description, asset.ID, asset.Description.Length, assetDescription.Length);
+                }
+
+                conn.Open();
+
+                bool AssetUpdated = false;
+
+                string sql = @"UPDATE assets set name = :name, description = :description, ""assetType"" = :assetType,
+                                      local = :local, temporary = :temporary, creatorid = :creatorid, data = :data, data_hash = md5(:data)
+                                WHERE id=:id; ";
+
+                using (NpgsqlCommand command = new NpgsqlCommand(sql, conn))
+                {
+                    CreateParametersAsset(asset, assetName, assetDescription, command, false);
+                    try
+                    {
+                        AssetUpdated = (command.ExecuteNonQuery() > 0);
+                    }
+                    catch (Exception e)
+                    {
+                        AssetUpdated = true;
+                        m_log.Error("[ASSET DB]: Error updating item :" + e.Message );
+                    }
+                }
+                if (!AssetUpdated)
+                {
+                    sql = @"INSERT INTO assets (id, name, description, ""assetType"", local,
+                                                temporary, create_time, access_time, creatorid, asset_flags, data, data_hash)
+                                        Select :id, :name, :description, :assetType, :local,
+                                               :temporary, :create_time, :access_time, :creatorid, :asset_flags, :data, md5(:data)
+                    ";
+
+                    using (NpgsqlCommand command = new NpgsqlCommand(sql, conn))
+                    {
+                        CreateParametersAsset(asset, assetName, assetDescription, command, true);
+                        try
+                        {
+                            AssetUpdated = (command.ExecuteNonQuery() > 0);
+                        }
+                        catch (Exception e)
+                        {
+                            AssetUpdated = true;
+                            m_log.Error("[ASSET DB]: Error inserting item :" + e.Message );
+                        }
+                    }
+                }
+            }
+        }
+
+        private void CreateParametersAsset(AssetBase asset, string assetName, string assetDescription, NpgsqlCommand command, bool insert)
+        {
+            int now = (int)((System.DateTime.Now.Ticks - m_ticksToEpoch) / 10000000);
+            command.Parameters.Add(m_database.CreateParameter("id", asset.FullID));
+            command.Parameters.Add(m_database.CreateParameter("name", assetName));
+            command.Parameters.Add(m_database.CreateParameter("description", assetDescription));
+            command.Parameters.Add(m_database.CreateParameter("assetType", asset.Type));
+            command.Parameters.Add(m_database.CreateParameter("local", asset.Local));
+            command.Parameters.Add(m_database.CreateParameter("temporary", asset.Temporary));
+            command.Parameters.Add(m_database.CreateParameter("asset_flags", (int)asset.Flags));
+            command.Parameters.Add(m_database.CreateParameter("creatorid", asset.Metadata.CreatorID));
+            command.Parameters.Add(m_database.CreateParameter("data", asset.Data));
+            if (insert)
+            {
                 command.Parameters.Add(m_database.CreateParameter("access_time", now));
                 command.Parameters.Add(m_database.CreateParameter("create_time", now));
-                command.Parameters.Add(m_database.CreateParameter("asset_flags", (int)asset.Flags));
-                command.Parameters.Add(m_database.CreateParameter("creatorid", asset.Metadata.CreatorID));
-                command.Parameters.Add(m_database.CreateParameter("data", asset.Data));
-                conn.Open();
-                try
-                {
-                    command.ExecuteNonQuery();
-                }
-                catch(Exception e)
-                {
-                    m_log.Error("[ASSET DB]: Error storing item :" + e.Message + " sql "+sql);
-                }
             }
         }
 
@@ -237,11 +264,23 @@ namespace OpenSim.Data.PGSQL
         /// <returns>true if exist.</returns>
         override public bool ExistsAsset(UUID uuid)
         {
+            bool retExists;
+            using (NpgsqlConnection conn = new NpgsqlConnection(m_connectionString))
+            using (NpgsqlCommand cmd = new NpgsqlCommand("SELECT id FROM assets WHERE id = :id", conn))
+            {
+                conn.Open();
+                cmd.Parameters.Add(m_database.CreateParameter("id", uuid));
+
+                retExists = (cmd.ExecuteNonQuery() > 0);
+            }
+            return retExists;
+            /*
             if (GetAsset(uuid) != null)
             {
                 return true;
             }
             return false;
+             */ 
         }
 
         /// <summary>

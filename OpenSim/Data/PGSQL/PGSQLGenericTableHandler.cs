@@ -101,26 +101,36 @@ namespace OpenSim.Data.PGSQL
 
         private void LoadFieldTypes()
         {
-            m_FieldTypes = new Dictionary<string, string>();
+            if (AppDomain.CurrentDomain.GetData("PGFieldTypes"+m_Realm) == null)
+            {
+                m_FieldTypes = new Dictionary<string, string>();
 
-            string query = string.Format(@"select column_name,data_type
+                string query = string.Format(@"select column_name,data_type
                         from INFORMATION_SCHEMA.COLUMNS 
                        where table_name = lower('{0}');
 
                 ", m_Realm);
-            using (NpgsqlConnection conn = new NpgsqlConnection(m_ConnectionString))
-            using (NpgsqlCommand cmd = new NpgsqlCommand(query, conn))
-            {
-                conn.Open();
-                using (NpgsqlDataReader rdr = cmd.ExecuteReader())
+                using (NpgsqlConnection conn = new NpgsqlConnection(m_ConnectionString))
+                using (NpgsqlCommand cmd = new NpgsqlCommand(query, conn))
                 {
-                    while (rdr.Read())
+                    conn.Open();
+                    using (NpgsqlDataReader rdr = cmd.ExecuteReader())
                     {
-                        // query produces 0 to many rows of single column, so always add the first item in each row
-                        m_FieldTypes.Add((string)rdr[0], (string)rdr[1]);
+                        while (rdr.Read())
+                        {
+                            // query produces 0 to many rows of single column, so always add the first item in each row
+                            m_FieldTypes.Add((string)rdr[0], (string)rdr[1]);
+                        }
                     }
                 }
+
+                AppDomain.CurrentDomain.SetData("PGFieldTypes" + m_Realm, m_FieldTypes);
             }
+            else
+            {
+               m_FieldTypes = (Dictionary<string,string>)AppDomain.CurrentDomain.GetData("PGFieldTypes" + m_Realm);
+            }
+
         }
 
         private void CheckColumnNames(NpgsqlDataReader reader)
@@ -144,42 +154,50 @@ namespace OpenSim.Data.PGSQL
         // TODO GET CONSTRAINTS FROM POSTGRESQL
         private List<string> GetConstraints()
         {
-            List<string> constraints = new List<string>();
-            string query = string.Format(@"SELECT kcu.column_name
-                        FROM information_schema.table_constraints tc
-                        LEFT JOIN information_schema.key_column_usage kcu
-                        ON tc.constraint_catalog = kcu.constraint_catalog
-                        AND tc.constraint_schema = kcu.constraint_schema
-                        AND tc.constraint_name = kcu.constraint_name
-
-                        LEFT JOIN information_schema.referential_constraints rc
-                        ON tc.constraint_catalog = rc.constraint_catalog
-                        AND tc.constraint_schema = rc.constraint_schema
-                        AND tc.constraint_name = rc.constraint_name
-
-                        LEFT JOIN information_schema.constraint_column_usage ccu
-                        ON rc.unique_constraint_catalog = ccu.constraint_catalog
-                        AND rc.unique_constraint_schema = ccu.constraint_schema
-                        AND rc.unique_constraint_name = ccu.constraint_name
-
-                        where tc.table_name = lower('{0}') 
-                        and lower(tc.constraint_type) in ('primary key')
-                        and kcu.column_name is not null
-                        ;", m_Realm);
-
-            using (NpgsqlConnection conn = new NpgsqlConnection(m_ConnectionString))
-            using (NpgsqlCommand cmd = new NpgsqlCommand(query, conn))
+            if (AppDomain.CurrentDomain.GetData("PGTableConstraints" + m_Realm) == null)
             {
-                conn.Open();
-                using (NpgsqlDataReader rdr = cmd.ExecuteReader())
+                List<string> constraints = new List<string>();
+                string query = string.Format(@"SELECT kcu.column_name
+                            FROM information_schema.table_constraints tc
+                            LEFT JOIN information_schema.key_column_usage kcu
+                            ON tc.constraint_catalog = kcu.constraint_catalog
+                            AND tc.constraint_schema = kcu.constraint_schema
+                            AND tc.constraint_name = kcu.constraint_name
+
+                            LEFT JOIN information_schema.referential_constraints rc
+                            ON tc.constraint_catalog = rc.constraint_catalog
+                            AND tc.constraint_schema = rc.constraint_schema
+                            AND tc.constraint_name = rc.constraint_name
+
+                            LEFT JOIN information_schema.constraint_column_usage ccu
+                            ON rc.unique_constraint_catalog = ccu.constraint_catalog
+                            AND rc.unique_constraint_schema = ccu.constraint_schema
+                            AND rc.unique_constraint_name = ccu.constraint_name
+
+                            where tc.table_name = lower('{0}') 
+                            and lower(tc.constraint_type) in ('primary key')
+                            and kcu.column_name is not null
+                            ;", m_Realm);
+
+                using (NpgsqlConnection conn = new NpgsqlConnection(m_ConnectionString))
+                using (NpgsqlCommand cmd = new NpgsqlCommand(query, conn))
                 {
-                    while (rdr.Read())
+                    conn.Open();
+                    using (NpgsqlDataReader rdr = cmd.ExecuteReader())
                     {
-                        // query produces 0 to many rows of single column, so always add the first item in each row
-                        constraints.Add((string)rdr[0]);
+                        while (rdr.Read())
+                        {
+                            // query produces 0 to many rows of single column, so always add the first item in each row
+                            constraints.Add((string)rdr[0]);
+                        }
                     }
                 }
+                AppDomain.CurrentDomain.SetData("PGTableConstraints" + m_Realm, constraints);
                 return constraints;
+            }
+            else
+            {
+                return (List<string>)AppDomain.CurrentDomain.GetData("PGTableConstraints" + m_Realm);
             }
         }
 
