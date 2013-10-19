@@ -151,54 +151,66 @@ namespace OpenSim.Data.PGSQL
         /// <param name="asset">the asset</param>
         override public void StoreAsset(AssetBase asset)
         {
+            string assetName = asset.Name;
+
+            if (asset.Name.Length > 64)
+            {
+                assetName = asset.Name.Substring(0, 64);
+                m_log.WarnFormat(
+                    "[ASSET DB]: Name '{0}' for asset {1} truncated from {2} to {3} characters on add",
+                    asset.Name, asset.ID, asset.Name.Length, assetName.Length);
+            }
+
+            string assetDescription = asset.Description;
+            if (asset.Description.Length > 64)
+            {
+                assetDescription = asset.Description.Substring(0, 64);
+                m_log.WarnFormat(
+                    "[ASSET DB]: Description '{0}' for asset {1} truncated from {2} to {3} characters on add",
+                    asset.Description, asset.ID, asset.Description.Length, assetDescription.Length);
+            }
+
+            bool AssetExists = false;
+
+            string sql = "";
+
             using (NpgsqlConnection conn = new NpgsqlConnection(m_connectionString))
             {
-                string assetName = asset.Name;
-
-                if (asset.Name.Length > 64)
-                {
-                    assetName = asset.Name.Substring(0, 64);
-                    m_log.WarnFormat(
-                        "[ASSET DB]: Name '{0}' for asset {1} truncated from {2} to {3} characters on add",
-                        asset.Name, asset.ID, asset.Name.Length, assetName.Length);
-                }
-
-                string assetDescription = asset.Description;
-                if (asset.Description.Length > 64)
-                {
-                    assetDescription = asset.Description.Substring(0, 64);
-                    m_log.WarnFormat(
-                        "[ASSET DB]: Description '{0}' for asset {1} truncated from {2} to {3} characters on add",
-                        asset.Description, asset.ID, asset.Description.Length, assetDescription.Length);
-                }
-
                 conn.Open();
 
-                bool AssetUpdated = false;
-
-                string sql = @"UPDATE assets set name = :name, description = :description, ""assetType"" = :assetType,
-                                      local = :local, temporary = :temporary, creatorid = :creatorid, data = :data, data_hash = md5(:data)
-                                WHERE id=:id; ";
-
-                using (NpgsqlCommand command = new NpgsqlCommand(sql, conn))
+                using (NpgsqlCommand command = new NpgsqlCommand("Select id from assets where id = :id ", conn)) 
                 {
-                    CreateParametersAsset(asset, assetName, assetDescription, command, false);
-                    try
+                    command.Parameters.Add(m_database.CreateParameter("id", asset.FullID));
+
+                    AssetExists = command.ExecuteScalar() != null;
+                }
+
+                if (AssetExists)
+                {
+                    sql = @"UPDATE assets set name = :name, description = :description, ""assetType"" = :assetType,
+                               local = :local, temporary = :temporary, creatorid = :creatorid, data = :data, data_hash = md5(:data)
+                         WHERE id = :id; ";
+
+                    using (NpgsqlCommand command = new NpgsqlCommand(sql, conn))
                     {
-                        AssetUpdated = (command.ExecuteNonQuery() > 0);
-                    }
-                    catch (Exception e)
-                    {
-                        AssetUpdated = true;
-                        m_log.Error("[ASSET DB]: Error updating item :" + e.Message );
+                        CreateParametersAsset(asset, assetName, assetDescription, command, false);
+                        try
+                        {
+                            AssetExists = (command.ExecuteNonQuery() > 0);
+                        }
+                        catch (Exception e)
+                        {
+                            AssetExists = true;
+                            m_log.Error("[ASSET DB]: Error updating item :" + e.Message);
+                        }
                     }
                 }
-                if (!AssetUpdated)
+                else // Not found
                 {
                     sql = @"INSERT INTO assets (id, name, description, ""assetType"", local,
                                                 temporary, create_time, access_time, creatorid, asset_flags, data, data_hash)
-                                        Select :id, :name, :description, :assetType, :local,
-                                               :temporary, :create_time, :access_time, :creatorid, :asset_flags, :data, md5(:data)
+                                        values( :id, :name, :description, :assetType, :local,
+                                               :temporary, :create_time, :access_time, :creatorid, :asset_flags, :data, md5(:data) )
                     ";
 
                     using (NpgsqlCommand command = new NpgsqlCommand(sql, conn))
@@ -206,11 +218,11 @@ namespace OpenSim.Data.PGSQL
                         CreateParametersAsset(asset, assetName, assetDescription, command, true);
                         try
                         {
-                            AssetUpdated = (command.ExecuteNonQuery() > 0);
+                            AssetExists = (command.ExecuteNonQuery() > 0);
                         }
                         catch (Exception e)
                         {
-                            AssetUpdated = true;
+                            AssetExists = true;
                             m_log.Error("[ASSET DB]: Error inserting item :" + e.Message );
                         }
                     }
