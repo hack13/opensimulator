@@ -116,7 +116,13 @@ namespace OpenSim.Data.PGSQL
         /// <returns></returns>
         override public AssetBase GetAsset(UUID assetID)
         {
-            string sql = "SELECT * FROM assets WHERE id = :id";
+            string sql = @"SELECT ast.id, ast.name, ast.description, ast.""assetType"", ast.local, ast.temporary, ash.data as data,
+                                  ast.create_time, ast.access_time, ast.asset_flags, ast.creatorid, ast.data_hash
+                             FROM assets ast
+                             inner join assets_data ash
+                               on ash.data_hash = ast.data_hash
+                            WHERE ast.id = :id
+                         ";
             using (NpgsqlConnection conn = new NpgsqlConnection(m_connectionString))
             using (NpgsqlCommand cmd = new NpgsqlCommand(sql, conn))
             {
@@ -170,7 +176,7 @@ namespace OpenSim.Data.PGSQL
                     asset.Description, asset.ID, asset.Description.Length, assetDescription.Length);
             }
 
-            bool AssetExists = false;
+            bool AssetExists = true;
 
             string sql = "";
 
@@ -178,22 +184,46 @@ namespace OpenSim.Data.PGSQL
             {
                 conn.Open();
 
+                /*
                 using (NpgsqlCommand command = new NpgsqlCommand("Select id from assets where id = :id ", conn)) 
                 {
                     command.Parameters.Add(m_database.CreateParameter("id", asset.FullID));
 
                     AssetExists = command.ExecuteScalar() != null;
                 }
+                */
 
+                // MTU Windows : netsh interface ipv4 set subinterface "Ethernet" mtu=9000 store=persistent
                 if (AssetExists)
                 {
+                    /*
                     sql = @"UPDATE assets set name = :name, description = :description, ""assetType"" = :assetType,
                                local = :local, temporary = :temporary, creatorid = :creatorid, data = :data, data_hash = md5(:data)
                          WHERE id = :id; ";
+                    */
+                    sql = @"
+                        Begin transaction;
+
+                        UPDATE assets set name = :name, description = :description, ""assetType"" = :assetType,
+                                   local = :local, temporary = :temporary, creatorid = :creatorid, data_hash = md5(:data)
+                             WHERE id = :id; 
+
+                        INSERT INTO assets (id, name, description, ""assetType"", local,
+                                            temporary, create_time, access_time, creatorid, asset_flags, data_hash)
+                                Select :id, :name, :description, :assetType, :local,
+                                       :temporary, :create_time, :access_time, :creatorid, :asset_flags, md5(:data) 
+                                 where not Exists( Select id from assets where id = :id ) ;
+
+                        INSERT INTO assets_data (data_hash, data)
+                        SELECT md5(:data), :data
+                         WHERE not exists( select data_hash from assets_data where data_hash = md5(:data) );
+
+                         commit transaction;
+                    ";
 
                     using (NpgsqlCommand command = new NpgsqlCommand(sql, conn))
                     {
-                        CreateParametersAsset(asset, assetName, assetDescription, command, false);
+                        CreateParametersAsset(asset, assetName, assetDescription, command, true);
                         try
                         {
                             AssetExists = (command.ExecuteNonQuery() > 0);
@@ -201,10 +231,11 @@ namespace OpenSim.Data.PGSQL
                         catch (Exception e)
                         {
                             AssetExists = true;
-                            m_log.Error("[ASSET DB]: Error updating item :" + e.Message);
+                            m_log.Error("[ASSET DB]: Error inserting/updating item :" + e.Message);
                         }
                     }
                 }
+                /*
                 else // Not found
                 {
                     sql = @"INSERT INTO assets (id, name, description, ""assetType"", local,
@@ -227,6 +258,7 @@ namespace OpenSim.Data.PGSQL
                         }
                     }
                 }
+                */ 
             }
         }
 

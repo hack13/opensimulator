@@ -111,3 +111,24 @@ create table assets_data
    );
 
 COMMIT;
+
+:VERSION 9
+
+begin transaction;
+
+alter table assets alter column data drop not null;
+
+update assets
+  set data_hash = md5(data)
+where data_hash is null;
+      
+insert into assets_data ( data_hash, data ) 
+  select distinct data_hash, data
+    from assets
+   where data_hash not in ( Select data_hash from assets_data );
+
+ update assets
+  set data = null
+ where data is not null;
+
+commit;
