@@ -288,12 +288,12 @@ namespace OpenSim.Data.PGSQL
 
                     if (m_DataField != null)
                     {
-                        Dictionary<string, string> data =
-                                new Dictionary<string, string>();
+                        Dictionary<string, object> data =
+                                new Dictionary<string, object>();
 
                         foreach (string col in m_ColumnNames)
                         {
-                            data[col] = reader[col].ToString();
+                            data[col] = reader[col];
 
                             if (data[col] == null)
                                 data[col] = String.Empty;
@@ -329,7 +329,7 @@ namespace OpenSim.Data.PGSQL
         public virtual bool Store(T row)
         {
             List<string> constraintFields = GetConstraints();
-            List<KeyValuePair<string, string>> constraints = new List<KeyValuePair<string, string>>();
+            List<KeyValuePair<string, object>> constraints = new List<KeyValuePair<string, object>>();
 
             using (NpgsqlConnection conn = new NpgsqlConnection(m_ConnectionString))
             using (NpgsqlCommand cmd = new NpgsqlCommand())
@@ -354,7 +354,7 @@ namespace OpenSim.Data.PGSQL
 
                     if (constraintFields.Count > 0 && constraintFields.Contains(fi.Name))
                     {
-                        constraints.Add(new KeyValuePair<string, string>(fi.Name, fi.GetValue(row).ToString() ));
+                        constraints.Add(new KeyValuePair<string, object>(fi.Name, fi.GetValue(row).ToString()));
                     }
                     if (m_FieldTypes.ContainsKey(fi.Name))
                         cmd.Parameters.Add(m_database.CreateParameter(fi.Name, fi.GetValue(row), m_FieldTypes[fi.Name]));
@@ -364,14 +364,13 @@ namespace OpenSim.Data.PGSQL
 
                 if (m_DataField != null)
                 {
-                    Dictionary<string, string> data =
-                            (Dictionary<string, string>)m_DataField.GetValue(row);
+                    Dictionary<string, object> data = (Dictionary<string, object>)m_DataField.GetValue(row);
 
-                    foreach (KeyValuePair<string, string> kvp in data)
+                    foreach (KeyValuePair<string, object> kvp in data)
                     {
                         if (constraintFields.Count > 0 && constraintFields.Contains(kvp.Key))
                         {
-                            constraints.Add(new KeyValuePair<string, string>(kvp.Key, kvp.Key));
+                            constraints.Add(new KeyValuePair<string, object>(kvp.Key, kvp.Key));
                         }
                         names.Add(kvp.Key);
                         values.Add(":" + kvp.Key);

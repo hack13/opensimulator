@@ -143,6 +143,7 @@ namespace OpenSim.Data.MySQL
             {
                 dbcon.Open();
                 cmd.Connection = dbcon;
+                cmd.CommandTimeout = 0;
 
                 using (IDataReader reader = cmd.ExecuteReader())
                 {
@@ -183,12 +184,12 @@ namespace OpenSim.Data.MySQL
                 
                         if (m_DataField != null)
                         {
-                            Dictionary<string, string> data =
-                                new Dictionary<string, string>();
+                            Dictionary<string, object> data =
+                                new Dictionary<string, object>();
 
                             foreach (string col in m_ColumnNames)
                             {
-                                data[col] = reader[col].ToString();
+                                data[col] = reader[col];
                                 if (data[col] == null)
                                     data[col] = String.Empty;
                             }
@@ -324,8 +325,8 @@ namespace OpenSim.Data.MySQL
 
                 string where = String.Join(" and ", terms.ToArray());
 
-                string query = String.Format("select count(*) from {0} where {1}",
-                                             m_Realm, where);
+                string query = String.Format("select count(*) from {0} {1}",
+                    m_Realm, (where=="" ? "":" where ")+ where);
 
                 cmd.CommandText = query;
 
@@ -335,12 +336,17 @@ namespace OpenSim.Data.MySQL
             }
         }
 
-        public long GetCount(string where)
+        public long GetCount(string where) 
+        {
+            return GetCountField(where, "*");
+        }
+
+        public long GetCountField(string where, string countField)
         {
             using (MySqlCommand cmd = new MySqlCommand())
             {
-                string query = String.Format("select count(*) from {0} where {1}",
-                                             m_Realm, where);
+                string query = String.Format("select count({0}) from {1} {2}",
+                    countField, m_Realm, (where == "" ? "" : " where ") + where);
 
                 cmd.CommandText = query;
 
@@ -356,6 +362,7 @@ namespace OpenSim.Data.MySQL
             {
                 dbcon.Open();
                 cmd.Connection = dbcon;
+                cmd.CommandTimeout = 0;
 
                 return cmd.ExecuteScalar();
             }
